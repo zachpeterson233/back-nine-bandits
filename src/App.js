@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-
+import { db } from "./firebase";
+import { doc, setDoc, onSnapshot } from "firebase/firestore";
 const ADMIN_PIN = "1234";
 const TEAL = "#338387";
 const TEAL_DARK = "#236063";
@@ -117,10 +118,35 @@ function initData() {
   return makeDefaultData();
 }
 
+const DOC_REF = doc(db, "league", "data");
+
 function useData() {
-  const [data, setData] = useState(initData);
-  useEffect(() => { localStorage.setItem("bnn_v5", JSON.stringify(data)); }, [data]);
-  return [data, setData];
+  const [data, setData] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    const unsub = onSnapshot(DOC_REF, (snap) => {
+      if (snap.exists()) {
+        setData(snap.data());
+      } else {
+        const def = makeDefaultData();
+        setDoc(DOC_REF, def);
+        setData(def);
+      }
+      setLoaded(true);
+    });
+    return () => unsub();
+  }, []);
+
+  const updateData = (updater) => {
+    setData(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      setDoc(DOC_REF, next);
+      return next;
+    });
+  };
+
+  return [data, updateData, loaded];
 }
 
 // ── STYLES ────────────────────────────────────────────────────────────────────
@@ -958,9 +984,11 @@ function SeasonTab({ data, setData, toast }) {
 
 // ── ROOT ──────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [data, setData] = useData();
-  const [tab, setTab] = useState("leaderboard");
-  const [isAdmin, setIsAdmin] = useState(false);
+ const [data, setData, loaded] = useData();
+
+  if (!loaded) return (
+    <div style={{ padding: 40, textAlign: "center", color: "#888" }}>Loading...</div>
+  );
 
   const tabs = [
     { id:"leaderboard", label:"Board" },
