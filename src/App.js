@@ -984,7 +984,9 @@ function SeasonTab({ data, setData, toast }) {
 
 // ── ROOT ──────────────────────────────────────────────────────────────────────
 export default function App() {
- const [data, setData, loaded] = useData();
+  const [data, setData, loaded] = useData();
+  const [tab, setTab] = useState("leaderboard");
+  const [isAdmin, setIsAdmin] = useState(false);
 
   if (!loaded) return (
     <div style={{ padding: 40, textAlign: "center", color: "#888" }}>Loading...</div>
