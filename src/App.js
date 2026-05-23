@@ -61,7 +61,7 @@ function calcTournamentScore(weekPts, isMajor) {
   if (!played.length) return null;
   let counted, dropped = null, bonus = played.length === 3 ? 3 : 0;
   if (played.length === 3) {
-    const minIdx = played.indexOf(Math.min(...played));
+    const minIdx = played.indexOf(Math.max(...played));
     counted = played.filter((_, i) => i !== minIdx);
     dropped = weekPts.indexOf(Math.min(...played));
   } else counted = played;
