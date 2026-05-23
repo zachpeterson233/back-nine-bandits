@@ -56,14 +56,22 @@ function calcWeekPoints(entries) {
   });
 }
 
-// Drop the week with the LOWEST points (worst performance = fewest points)
-function calcTournamentScore(weekPts, isMajor) {
+// Drop the week with the HIGHEST raw score (worst golf round)
+function calcTournamentScore(weekPts, isMajor, weekRawScores) {
   const played = weekPts.filter(w => w != null);
   if (!played.length) return null;
   let counted, dropped = null;
   const bonus = played.length === 3 ? 3 : 0;
-  if (played.length === 3) {
-    // Find index of lowest points week (worst round = fewest points)
+  if (played.length === 3 && weekRawScores) {
+    // Find the week with the highest raw score (worst golf round)
+    let maxScore = -Infinity, maxIdx = 0;
+    weekRawScores.forEach((score, i) => {
+      if (score != null && score > maxScore) { maxScore = score; maxIdx = i; }
+    });
+    dropped = maxIdx;
+    counted = weekPts.filter((pts, i) => pts != null && i !== dropped);
+  } else if (played.length === 3) {
+    // Fallback: drop lowest points week if no raw scores
     let minPts = Infinity, minIdx = 0;
     weekPts.forEach((pts, i) => {
       if (pts != null && pts < minPts) { minPts = pts; minIdx = i; }
@@ -187,7 +195,8 @@ function LeaderboardPage({ data }) {
           const entries = (data.players || []).map(p => ({ player: p, score: wd[p]?.score ?? null, inLowerGroup: wd[p]?.inLowerGroup ?? false, lowerGroupWinOverride: wd[p]?.lowerGroupWinOverride ?? null }));
           return calcWeekPoints(entries).find(r => r.player === player)?.totalPts ?? null;
         });
-        const res = calcTournamentScore(weekPts, t.isMajor);
+        const weekRawScores = [0, 1, 2].map(wi => data.scores[t.id]?.weeks?.[wi]?.[player]?.score ?? null);
+        const res = calcTournamentScore(weekPts, t.isMajor, weekRawScores);
         if (res) { totalPts += res.total; tournsPlayed++; }
       });
       return { player, totalPts, tournsPlayed, avg: tournsPlayed > 0 ? (totalPts / tournsPlayed).toFixed(1) : "–" };
@@ -353,7 +362,8 @@ function TournamentDetail({ t, data, onBack }) {
 
   const playerResults = useMemo(() => (data.players||[]).map(player => {
     const weekPts = weekResults.map(wr => wr?.find(r => r.player === player)?.totalPts ?? null);
-    const res = calcTournamentScore(weekPts, t.isMajor);
+    const weekRawScores = [0,1,2].map(wi => data.scores[t.id]?.weeks?.[wi]?.[player]?.score ?? null);
+    const res = calcTournamentScore(weekPts, t.isMajor, weekRawScores);
     return { player, weekDetails: weekResults.map(wr => wr?.find(r => r.player === player) ?? null), res };
   }).filter(r => r.res).sort((a, b) => b.res.total - a.res.total), [data, t, weekResults]);
 
@@ -422,7 +432,8 @@ function StatsPage({ data }) {
         if (mine.isLowerWinner) lowerWins++;
         return mine.totalPts;
       });
-      const res = calcTournamentScore(weekPts, t.isMajor);
+      const weekRawScores = [0,1,2].map(wi => data.scores[t.id]?.weeks?.[wi]?.[player]?.score ?? null);
+      const res = calcTournamentScore(weekPts, t.isMajor, weekRawScores);
       if (res) { totalPts += res.total; tournsPlayed++; if (res.bonus) bonuses++; }
     });
     const scoreAvg = allScores.length > 0 ? (allScores.reduce((a,b)=>a+b,0)/allScores.length).toFixed(1) : "–";
