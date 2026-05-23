@@ -353,6 +353,8 @@ function TournamentsPage({ data }) {
 }
 
 function TournamentDetail({ t, data, onBack }) {
+  const [shareMsg, setShareMsg] = useState("");
+
   const weekResults = useMemo(() => [0,1,2].map(wi => {
     const wd = data.scores[t.id]?.weeks?.[wi];
     if (!wd) return null;
@@ -367,9 +369,58 @@ function TournamentDetail({ t, data, onBack }) {
     return { player, weekDetails: weekResults.map(wr => wr?.find(r => r.player === player) ?? null), res };
   }).filter(r => r.res).sort((a, b) => b.res.total - a.res.total), [data, t, weekResults]);
 
+  const handleShare = () => {
+    const medals = ["🥇","🥈","🥉"];
+    let text = `⛳ Back Nine Bandits\n`;
+    text += `${t.name}${t.isMajor ? " ★ MAJOR" : ""}\n`;
+    text += `${"─".repeat(28)}\n`;
+
+    // Per-week results
+    [0,1,2].map((wi) => {
+      const wr = weekResults[wi];
+      if (!wr) return null;
+      const played = [...wr].filter(r => r.totalPts != null).sort((a,b) => a.rank - b.rank || a.score - b.score);
+      if (!played.length) return null;
+      text += `\nWeek ${wi+1} Results\n`;
+      played.forEach((r, i) => {
+        const medal = i < 3 ? medals[i] : `${i+1}.`;
+        const lower = r.isLowerWinner ? " +2⬇️" : "";
+        text += `${medal} ${r.player} — ${r.score} (${r.totalPts}pts${lower})\n`;
+      });
+    });
+
+    // Tournament standings
+    if (playerResults.length) {
+      text += `\n${"─".repeat(28)}\n`;
+      text += `Tournament Standings\n`;
+      playerResults.forEach((r, i) => {
+        const medal = i < 3 ? medals[i] : `${i+1}.`;
+        const bonus = r.res.bonus ? " +3🏌️" : "";
+        text += `${medal} ${r.player} — ${r.res.total}pts${bonus}\n`;
+      });
+    }
+
+    text += `\n🔗 back-nine-bandits-mofg.vercel.app`;
+
+    if (navigator.share) {
+      navigator.share({ title: `BNB – ${t.name}`, text }).catch(() => {});
+    } else {
+      navigator.clipboard.writeText(text).then(() => {
+        setShareMsg("Copied to clipboard!");
+        setTimeout(() => setShareMsg(""), 2500);
+      });
+    }
+  };
+
   return (
     <div style={S.page}>
-      <button onClick={onBack} style={{ ...S.btn("sm"), marginBottom: 14 }}>← Back</button>
+      <div style={{ display:"flex", gap:8, marginBottom:14, alignItems:"center" }}>
+        <button onClick={onBack} style={S.btn("sm")}>← Back</button>
+        <button onClick={handleShare} style={{ ...S.btn("primary"), marginLeft:"auto", display:"flex", alignItems:"center", gap:6 }}>
+          <span>📤</span> Share Results
+        </button>
+      </div>
+      {shareMsg && <div style={S.toast}>{shareMsg}</div>}
       <div style={{ ...S.card, background: TEAL_DARK, padding: "14px 18px", marginBottom: 14 }}>
         <div style={{ fontSize: 11, color: "rgba(255,255,255,0.7)", fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" }}>Tournament</div>
         <div style={{ fontSize: 19, fontWeight: 700, color: "#fff", marginTop: 4 }}>{t.name}</div>
@@ -521,9 +572,24 @@ function AdminPage({ data, setData, isAdmin, setIsAdmin }) {
 }
 
 // ── SCORES TAB ────────────────────────────────────────────────────────────────
+// Find the next incomplete week/tournament to pick up where left off
+function getNextIncomplete(data) {
+  for (let tIdx = 0; tIdx < data.tournaments.length; tIdx++) {
+    const t = data.tournaments[tIdx];
+    for (let wi = 0; wi < 3; wi++) {
+      const wd = data.scores[t.id]?.weeks?.[wi];
+      const playersWithScores = (data.players||[]).filter(p => wd?.[p]?.score != null).length;
+      if (playersWithScores === 0) return { tIdx, wi };
+    }
+  }
+  // All complete — return last tournament week 2
+  return { tIdx: data.tournaments.length - 1, wi: 2 };
+}
+
 function ScoresTab({ data, setData, toast }) {
-  const [selTIdx, setSelTIdx] = useState(0);
-  const [selWeek, setSelWeek] = useState(0);
+  const next = useMemo(() => getNextIncomplete(data), [data]);
+  const [selTIdx, setSelTIdx] = useState(next.tIdx);
+  const [selWeek, setSelWeek] = useState(next.wi);
   const t = data.tournaments[selTIdx] || data.tournaments[0];
   const [localScores, setLocalScores] = useState({});
   const [lowerOverrides, setLowerOverrides] = useState({});
