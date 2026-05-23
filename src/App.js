@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { db } from "./firebase";
 import { doc, setDoc, onSnapshot } from "firebase/firestore";
+
 const ADMIN_PIN = "1234";
 const TEAL = "#338387";
 const TEAL_DARK = "#236063";
@@ -19,11 +20,10 @@ const DEFAULT_TOURNAMENTS = [
 ];
 
 const DEFAULT_PLAYERS = ["Tiger", "Phil", "Rory", "Dustin", "Jordan", "Brooks", "Jon", "Xander"];
-
 const PTS_MAP = { 1: 6, 2: 4, 3: 2 };
 const getPlacementPts = (p) => PTS_MAP[p] || 1;
 
-// ── SCORING ───────────────────────────────────────────────────────────────────
+// ── SCORING LOGIC ─────────────────────────────────────────────────────────────
 function calcWeekPoints(entries) {
   const played = entries.filter(e => e.score != null && e.score !== "");
   if (!played.length) return entries.map(e => ({ ...e, rank: null, basePts: null, lowerBonus: 0, totalPts: null, isLowerWinner: false }));
@@ -56,15 +56,23 @@ function calcWeekPoints(entries) {
   });
 }
 
+// Drop the week with the LOWEST points (worst performance = fewest points)
 function calcTournamentScore(weekPts, isMajor) {
   const played = weekPts.filter(w => w != null);
   if (!played.length) return null;
-  let counted, dropped = null, bonus = played.length === 3 ? 3 : 0;
+  let counted, dropped = null;
+  const bonus = played.length === 3 ? 3 : 0;
   if (played.length === 3) {
-    const minIdx = played.indexOf(Math.min(...played));
-    counted = played.filter((_, i) => i !== minIdx);
-    dropped = weekPts.indexOf(Math.min(...played));
-  } else counted = played;
+    // Find index of lowest points week (worst round = fewest points)
+    let minPts = Infinity, minIdx = 0;
+    weekPts.forEach((pts, i) => {
+      if (pts != null && pts < minPts) { minPts = pts; minIdx = i; }
+    });
+    dropped = minIdx;
+    counted = weekPts.filter((pts, i) => pts != null && i !== dropped);
+  } else {
+    counted = played;
+  }
   const base = counted.reduce((a, b) => a + b, 0) + bonus;
   return { base, total: isMajor ? base * 2 : base, bonus, dropped };
 }
@@ -113,11 +121,6 @@ function makeDefaultData() {
   };
 }
 
-function initData() {
-  try { const s = localStorage.getItem("bnn_v5"); if (s) return JSON.parse(s); } catch (e) {}
-  return makeDefaultData();
-}
-
 const DOC_REF = doc(db, "league", "data");
 
 function useData() {
@@ -164,7 +167,6 @@ const S = {
   input: { width: "100%", padding: "9px 11px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", color: "#222", fontSize: 14, boxSizing: "border-box", outline: "none" },
   badge: (t) => { const m = { major: [TEAL_DARK, TEAL_LIGHT], bonus: ["#1a3575", "#e8eeff"], lower: ["#5a3000", "#fff3e0"], ryder: ["#222", "#f5f5f5"] }; const [bg, c] = m[t] || ["#ccc", "#333"]; return { background: bg, color: c, fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 20, display: "inline-block" }; },
   toast: { background: TEAL_LIGHT, color: TEAL_DARK, padding: "10px 14px", borderRadius: 8, marginBottom: 12, fontWeight: 600, fontSize: 14, border: `1px solid ${TEAL_MID}` },
-  sectionHdr: { background: TEAL, color: "#fff", padding: "8px 14px", fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" },
 };
 
 function Toast({ msg }) { if (!msg) return null; return <div style={S.toast}>{msg}</div>; }
@@ -226,14 +228,12 @@ function LeaderboardPage({ data }) {
 
   return (
     <div style={S.page}>
-      {/* Season banner */}
       <div style={{ ...S.card, background: TEAL_DARK, padding: "14px 18px", marginBottom: 14 }}>
         <div style={{ fontSize: 11, color: "rgba(255,255,255,0.7)", fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" }}>Current Season</div>
         <div style={{ fontSize: 16, fontWeight: 700, color: "#fff", marginTop: 4 }}>{data.season.name}</div>
         <div style={{ fontSize: 12, color: "rgba(255,255,255,0.7)", marginTop: 2 }}>{data.season.startDate} – {data.season.endDate}</div>
       </div>
 
-      {/* Leader card */}
       {leader?.totalPts > 0 && (
         <div style={{ ...S.card, background: "#111", padding: "14px 18px", marginBottom: 14 }}>
           <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" }}>Season Leader</div>
@@ -247,7 +247,6 @@ function LeaderboardPage({ data }) {
         </div>
       )}
 
-      {/* Season highlights */}
       {hasStats && <>
         <div style={S.label}>Season Highlights</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
@@ -301,13 +300,12 @@ function LeaderboardPage({ data }) {
         ))}
       </div>
 
-      {/* Archived seasons */}
       {data.archivedSeasons?.length > 0 && <>
         <div style={S.label}>Past Seasons</div>
         {data.archivedSeasons.map((s, i) => (
           <div key={i} style={{ ...S.card, padding: "12px 16px" }}>
-            <div style={{ fontWeight: 600, color: "#111" }}>{s.season.name}</div>
-            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{s.season.startDate} – {s.season.endDate} · {s.players?.length || 0} players</div>
+            <div style={{ fontWeight: 600, color: "#111" }}>{s.season?.name}</div>
+            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{s.season?.startDate} – {s.season?.endDate} · {s.players?.length || 0} players</div>
           </div>
         ))}
       </>}
@@ -430,15 +428,13 @@ function StatsPage({ data }) {
     const scoreAvg = allScores.length > 0 ? (allScores.reduce((a,b)=>a+b,0)/allScores.length).toFixed(1) : "–";
     const bestScore = allScores.length ? Math.min(...allScores) : null;
     const worstScore = allScores.length ? Math.max(...allScores) : null;
-    const sd = allScores.length >= 2 ? stdDev(allScores) : null;
-    return { player, totalPts, tournsPlayed, weekWins, top3, bonuses, lowerWins, scoreAvg, bestScore, worstScore, sd, rounds: allScores.length };
+    return { player, totalPts, tournsPlayed, weekWins, top3, bonuses, lowerWins, scoreAvg, bestScore, worstScore, rounds: allScores.length };
   }).sort((a, b) => b.totalPts - a.totalPts), [data]);
 
   return (
     <div style={S.page}>
       {stats.map((p, i) => (
         <div key={p.player} style={{ ...S.card, marginBottom: 14 }}>
-          {/* Player header bar */}
           <div style={{ background: TEAL_DARK, padding: "12px 16px", display: "flex", alignItems: "center", gap: 12 }}>
             <div style={{ ...S.rank(i), background: i===0?"#f0c030":i===1?"#b0b8c0":i===2?"#c07840":"rgba(255,255,255,0.2)", color: i<3?"#1a1a1a":"#fff" }}>{i+1}</div>
             <div style={{ flex: 1 }}>
@@ -450,9 +446,7 @@ function StatsPage({ data }) {
               <div style={{ fontSize: 11, color: "rgba(255,255,255,0.6)" }}>pts</div>
             </div>
           </div>
-
-          {/* Scoring section */}
-          <div style={{ padding: "6px 14px 2px", fontSize: 10, fontWeight: 700, color: TEAL, letterSpacing: 1, textTransform: "uppercase", borderBottom: "none" }}>Scoring</div>
+          <div style={{ padding: "6px 14px 2px", fontSize: 10, fontWeight: 700, color: TEAL, letterSpacing: 1, textTransform: "uppercase" }}>Scoring</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", padding: "4px 8px 12px", borderBottom: "1px solid #f0f0f0" }}>
             {[["Avg Score", p.scoreAvg, TEAL_DARK], ["Best Round", p.bestScore ?? "–", TEAL], ["Worst Round", p.worstScore ?? "–", "#c07040"]].map(([lbl, val, color]) => (
               <div key={lbl} style={{ textAlign: "center", padding: "8px 4px" }}>
@@ -461,8 +455,6 @@ function StatsPage({ data }) {
               </div>
             ))}
           </div>
-
-          {/* Performance section */}
           <div style={{ padding: "6px 14px 2px", fontSize: 10, fontWeight: 700, color: TEAL, letterSpacing: 1, textTransform: "uppercase" }}>Performance</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", padding: "4px 8px 12px" }}>
             {[["Wk Wins", p.weekWins], ["Top 3", p.top3], ["Attendance", p.bonuses], ["Lower Wins", p.lowerWins]].map(([lbl, val]) => (
@@ -696,7 +688,7 @@ function PlayersTab({ data, setData, toast }) {
             <button style={{ ...S.btn("primary"), padding:"6px 12px", fontSize:13 }} onClick={() => saveEdit(i)}>Save</button>
             <button style={{ ...S.btn("sm"), fontSize:13 }} onClick={() => setEditing(null)}>✕</button>
           </> : <>
-            <div style={{ width: 28, height: 28, borderRadius: "50%", background: TEAL_LIGHT, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: TEAL_DARK, flexShrink: 0 }}>
+            <div style={{ width:28, height:28, borderRadius:"50%", background:TEAL_LIGHT, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:700, color:TEAL_DARK, flexShrink:0 }}>
               {p.charAt(0).toUpperCase()}
             </div>
             <span style={{ flex:1, fontSize:15, fontWeight:500, color:"#111" }}>{p}</span>
@@ -795,8 +787,6 @@ function EventsTab({ data, setData, toast }) {
         </div>
       ))}
     </div>
-
-    {/* Add tournament */}
     {!showAdd ? (
       <button style={{ ...S.btn("primary"), width:"100%", marginTop:4 }} onClick={() => setShowAdd(true)}>+ Add Tournament</button>
     ) : (
@@ -834,7 +824,6 @@ function SeasonTab({ data, setData, toast }) {
   const [nsEnd, setNsEnd] = useState("");
   const logoRef = useRef();
 
-  // Keep local state in sync if data changes
   useEffect(() => {
     setSeasonName(data.season?.name || "");
     setStartDate(data.season?.startDate || "");
@@ -851,10 +840,7 @@ function SeasonTab({ data, setData, toast }) {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => {
-      setData(d => ({ ...d, logo: ev.target.result }));
-      toast("Logo uploaded!");
-    };
+    reader.onload = (ev) => { setData(d => ({ ...d, logo: ev.target.result })); toast("Logo uploaded!"); };
     reader.readAsDataURL(file);
   };
 
@@ -880,7 +866,6 @@ function SeasonTab({ data, setData, toast }) {
   };
 
   return <>
-    {/* Logo */}
     <div style={S.label}>League Logo</div>
     <div style={S.card}>
       <div style={{ padding:"14px", display:"flex", alignItems:"center", gap:14 }}>
@@ -905,7 +890,6 @@ function SeasonTab({ data, setData, toast }) {
       </div>
     </div>
 
-    {/* Season info */}
     <div style={S.label}>Current Season</div>
     <div style={S.card}>
       <div style={{ padding:"14px", display:"flex", flexDirection:"column", gap:10 }}>
@@ -927,7 +911,6 @@ function SeasonTab({ data, setData, toast }) {
       </div>
     </div>
 
-    {/* New season */}
     <div style={S.label}>Start New Season</div>
     <div style={S.card}>
       {!showNew ? (
@@ -969,7 +952,6 @@ function SeasonTab({ data, setData, toast }) {
       )}
     </div>
 
-    {/* Archived seasons */}
     {(data.archivedSeasons||[]).length > 0 && <>
       <div style={S.label}>Archived Seasons ({data.archivedSeasons.length})</div>
       {data.archivedSeasons.map((s, i) => (
